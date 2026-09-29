@@ -14,6 +14,19 @@ from fastapi.staticfiles import StaticFiles
 
 from .bellman_ford import run_bellman_ford
 from .dijkstra import run_dijkstra
+from .dynamic.experiment import (
+    ExperimentNotFound,
+    InvalidEdit,
+    StaleVersion,
+    store as experiment_store,
+)
+from .dynamic.schemas import (
+    CreateExperimentRequest,
+    EditPayload,
+    ExperimentCreated,
+    ExperimentResult,
+    ExperimentSummary,
+)
 from .graph import Graph, GraphError
 from .models import RunRequest, RunResponse
 from .path import backtrack_path
@@ -83,6 +96,85 @@ def run_algorithm(req: RunRequest):
 
     # 统一校验返回结构；异常会以 500 暴露，便于开发期发现问题
     return RunResponse.model_validate(result)
+
+
+# ---- 动态实验 -----------------------------------------------------------
+#
+# 与静态 /api/run 完全独立：开实验后，每次改边都作为一次「编辑」提交，
+# 后端在上一版结果上做增量修复，并返回变化清单 / 被重新处理的节点 /
+# 逐帧修复过程 / 增量与全量松弛次数对照。
+
+@ app.post("/api/experiments", response_model=ExperimentCreated, status_code=201)
+def create_experiment(req: CreateExperimentRequest):
+    """对当前图 + 源点开一个实验，返回实验编号、版本 0 与完整初始结果。"""
+    try:
+        experiment_id, v0 = experiment_store.create(
+            req.model_dump()["graph"], req.source
+        )
+    except InvalidEdit as exc:
+        raise _error(str(exc))
+    return {
+        "experiment_id": experiment_id,
+        "version": 0,
+        "result": v0.result_payload(req.source),
+    }
+
+
+@ app.post("/api/experiments/{experiment_id}/edits",
+           response_model=ExperimentResult)
+def submit_experiment_edit(experiment_id: str, req: EditPayload):
+    """提交一次图编辑；落后版本返回 409，实验不存在 / 已淘汰返回 404。"""
+    try:
+        version = experiment_store.submit_edit(experiment_id, req.model_dump())
+        return version.result_payload(experiment_store.summarize(experiment_id).source)
+    except ExperimentNotFound as exc:
+        raise _error(str(exc), status=404)
+    except StaleVersion as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except InvalidEdit as exc:
+        raise _error(str(exc))
+
+
+@ app.get("/api/experiments/{experiment_id}", response_model=ExperimentSummary)
+def get_experiment(experiment_id: str):
+    """实验元信息与版本号列表（不含逐版大图）。"""
+    try:
+        exp = experiment_store.summarize(experiment_id)
+    except ExperimentNotFound as exc:
+        raise _error(str(exc), status=404)
+    return {
+        "experiment_id": exp.experiment_id,
+        "source": exp.source,
+        "current_version": exp.current_version,
+        "has_negative_cycle": exp.versions[exp.current_version].has_negative_cycle,
+        "created_at": exp.created_at,
+        "last_accessed_at": exp.last_accessed_at,
+        "versions": sorted(exp.versions),
+    }
+
+
+@ app.get("/api/experiments/{experiment_id}/versions/{version}",
+          response_model=ExperimentResult)
+def get_experiment_version(experiment_id: str, version: int):
+    """按版本号取回那一版的图、距离表与修复结果。"""
+    try:
+        exp = experiment_store.summarize(experiment_id)
+        v = experiment_store.get_version(experiment_id, version)
+    except ExperimentNotFound as exc:
+        raise _error(str(exc), status=404)
+    except InvalidEdit as exc:
+        raise _error(str(exc))
+    return v.result_payload(exp.source)
+
+
+@ app.delete("/api/experiments/{experiment_id}")
+def delete_experiment(experiment_id: str):
+    """退出实验时顺手清理；实验不存在同样返回 404。"""
+    try:
+        experiment_store.delete(experiment_id)
+    except ExperimentNotFound as exc:
+        raise _error(str(exc), status=404)
+    return {"deleted": True, "experiment_id": experiment_id}
 
 
 # ---- 生产环境：托管前端静态文件 ----------------------------------------

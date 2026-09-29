@@ -120,3 +120,92 @@ def nodes_affected_by_cycle(graph: Graph, source: str,
                 stack.append(edge.target)
     reachable = graph.reachable_from(source)
     return [v for v in graph.node_ids if v in affected and v in reachable]
+
+
+def find_all_negatively_affected(
+    graph: Graph, source: str
+) -> tuple[list[str], list[str], list[dict], float | None]:
+    """在已知可能含环的图上，**完备地**求所有最短距离为 −∞ 的源点可达节点。
+
+    教学版 Bellman–Ford 的「检测轮」只额外松弛一轮，当负权环的影响需要多跳
+    才能传到某些节点（甚至绕回源点自己）时，会漏标。本函数采用更稳健的判据：
+
+    1. 先跑 V 轮松弛得到 d；
+    2. 再继续松弛 **V 轮**：第 V 轮之后（即额外第 1…V 轮）距离仍能严格下降的
+       节点一定处于某个负权环上或其下游（−∞ 集合）；
+    3. 沿出边把该集合向下游闭包，得到全部被污染节点；
+    4. 仅保留从源点可达者。
+
+    另外从被污染节点的前驱关系中回溯定位一个**真实环权为负**的环用于展示。
+
+    :returns: ``(affected, cycle_nodes, cycle_edges, cycle_weight)``；
+       无负权环时 affected 为空、环信息为 ``([], [], None)``。
+    """
+    n = len(graph)
+    dist: dict[str, float | None] = {v: None for v in graph.node_ids}
+    pred: dict[str, str | None] = {v: None for v in graph.node_ids}
+    dist[source] = 0.0
+
+    for _ in range(n):
+        nd = dict(dist)
+        changed = False
+        for edge in graph.edges:
+            du = dist[edge.source]
+            if du is None:
+                continue
+            cand = du + edge.weight
+            if nd[edge.target] is None or cand < nd[edge.target]:
+                nd[edge.target] = cand
+                pred[edge.target] = edge.source
+                changed = True
+        dist = nd
+        if not changed:
+            break
+
+    # 额外 V 轮：仍能下降的节点即 −∞。
+    # 第 0 个额外轮就要收集——像负权自环这种长度 1 的环，在第 V 轮（第一个额外轮）
+    # 就会立刻继续下降；其余节点可能要多跳后才在第 1…V-1 个额外轮被发现。
+    polluted: set[str] = set()
+    for extra in range(n):
+        nd = dict(dist)
+        for edge in graph.edges:
+            du = dist[edge.source]
+            if du is None:
+                continue
+            cand = du + edge.weight
+            if nd[edge.target] is None or cand < nd[edge.target] - 1e-12:
+                nd[edge.target] = cand
+                pred[edge.target] = edge.source
+                polluted.add(edge.target)
+        dist = nd
+
+    # 沿出边向下游闭包
+    flood = set(polluted)
+    stack = list(polluted)
+    while stack:
+        u = stack.pop()
+        for edge in graph.neighbors(u):
+            if edge.target not in flood:
+                flood.add(edge.target)
+                stack.append(edge.target)
+
+    reachable = graph.reachable_from(source)
+    affected = [v for v in graph.node_ids if v in flood and v in reachable]
+    if not affected:
+        return [], [], [], None
+
+    # 定位一个真实负权环：优先从被污染节点的前驱链回溯
+    candidates = list(dict.fromkeys(polluted))
+    candidates.extend(v for v in graph.node_ids if v not in candidates)
+    for start in candidates:
+        chain = _pred_cycle(pred, start)
+        if not chain:
+            continue
+        if not all(node in reachable for node in chain):
+            continue
+        built = _build_forward_cycle(graph, chain)
+        if built is not None:
+            forward, edges, total = built
+            return affected, forward, edges, total
+    # 前驱链未能成环（防御性兜底）：仍如实返回 −∞ 集合
+    return affected, [], [], None

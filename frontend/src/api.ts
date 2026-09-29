@@ -1,5 +1,9 @@
 import type {
   Algorithm,
+  ExperimentCreated,
+  ExperimentEdit,
+  ExperimentResult,
+  ExperimentSummary,
   GraphData,
   PresetMap,
   RunResult,
@@ -48,4 +52,61 @@ export async function fetchPresets(): Promise<PresetMap> {
   const resp = await fetch("/api/presets");
   if (!resp.ok) throw await parseError(resp);
   return (await resp.json()) as PresetMap;
+}
+
+// ---- 动态实验 -----------------------------------------------------------
+
+export async function createExperiment(
+  graph: GraphData,
+  source: string,
+): Promise<ExperimentCreated> {
+  const resp = await fetch("/api/experiments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ graph, source }),
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentCreated;
+}
+
+export async function submitExperimentEdit(
+  experimentId: string,
+  edit: ExperimentEdit,
+): Promise<ExperimentResult> {
+  const resp = await fetch(
+    `/api/experiments/${experimentId}/edits`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(edit),
+    },
+  );
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentResult;
+}
+
+export async function fetchExperiment(
+  experimentId: string,
+): Promise<ExperimentSummary> {
+  const resp = await fetch(`/api/experiments/${experimentId}`);
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentSummary;
+}
+
+export async function fetchExperimentVersion(
+  experimentId: string,
+  version: number,
+): Promise<ExperimentResult> {
+  const resp = await fetch(
+    `/api/experiments/${experimentId}/versions/${version}`,
+  );
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentResult;
+}
+
+export async function deleteExperiment(experimentId: string): Promise<void> {
+  const resp = await fetch(`/api/experiments/${experimentId}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw await parseError(resp);
 }

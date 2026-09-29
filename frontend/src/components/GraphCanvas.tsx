@@ -21,6 +21,8 @@ interface GraphCanvasProps {
   onEditEdgeWeight: (u: string, v: string, weight: number) => void;
   onSetSource: (id: string) => void;
   onSetTarget: (id: string) => void;
+  /** 动态实验模式：增量修复帧用 作废/重新处理/没碰 三类着色 */
+  experimentMode?: boolean;
 }
 
 const NODE_R = 26;
@@ -224,6 +226,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
     currentStep?.affected?.length ? currentStep.affected : result?.affected ?? [],
   );
   const settledNodes = new Set<string>(currentStep?.settled ?? []);
+
+  // ---- 动态实验：作废 / 重新处理 / 没被碰到，三类一眼分开 ----
+  // 每一帧都带「截至本帧」的累计集合；初始的 plan 帧集合为空（全部没碰），
+  // 末帧携带最终集合。仅增量修复帧着色，全量帧保持常规着色。
+  const isIncrementalFrame = currentStep?.phase === "incremental";
+  const expInvalidated = new Set<string>(
+    isIncrementalFrame ? currentStep?.invalidated ?? [] : [],
+  );
+  const expReprocessed = new Set<string>(
+    isIncrementalFrame ? currentStep?.reprocessed ?? [] : [],
+  );
+  const inExperiment = props.experimentMode === true && isIncrementalFrame;
   const finalPathEdges = new Set<string>();
   const finalPathNodes = new Set<string>();
   if (!currentStep || currentStep.type === "finished" || currentStep.type === "negative_cycle") {
@@ -450,6 +464,11 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const isCurrent = currentStep?.current_node === n.id;
         const isCycle = cycleNodes.has(n.id);
         const isAffected = affectedNodes.has(n.id) && !isCycle;
+        const isInvalid = inExperiment && expInvalidated.has(n.id);
+        const isRepro =
+          inExperiment && !isInvalid && expReprocessed.has(n.id);
+        const isUntouched =
+          inExperiment && !isInvalid && !isRepro && !isCycle && !isAffected;
         const isPath = finalPathNodes.has(n.id);
         const isSelected = selectedNode === n.id;
         const cls = [
@@ -460,6 +479,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
           isCurrent ? "node-current" : "",
           isCycle ? "node-cycle" : "",
           isAffected ? "node-affected" : "",
+          isInvalid ? "node-invalidated" : "",
+          isRepro ? "node-reprocessed" : "",
+          isUntouched ? "node-untouched" : "",
           isPath ? "node-path" : "",
           isSelected ? "node-selected" : "",
           mode === "add-node" ? "node-no-drag" : "",

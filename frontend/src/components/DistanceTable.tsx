@@ -1,4 +1,4 @@
-import type { RunResult, Step } from "../types";
+import type { ChangeEntry, RunResult, Step } from "../types";
 
 interface DistanceTableProps {
   nodeIds: string[];
@@ -7,6 +7,12 @@ interface DistanceTableProps {
   source: string | null;
   target: string | null;
   playing: boolean;
+  /** 动态实验：本次修复中距离真正变化的节点（改动前→改动后） */
+  changed?: ChangeEntry[];
+  /** 动态实验：本次修复实际被重新处理过的节点集合 */
+  reprocessed?: string[];
+  /** 动态实验：是否处于实验模式（用于着色与图例） */
+  experimentMode?: boolean;
 }
 
 function fmt(v: number | null | undefined): string {
@@ -14,7 +20,7 @@ function fmt(v: number | null | undefined): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-/** 距离表 + 优先队列（Dijkstra）/ 轮次（Bellman–Ford）+ 逐步讲解。 */
+/** 最短路径算法教学看板 —— 距离表 + 优先队列（Dijkstra）/ 轮次（Bellman–Ford）+ 逐步讲解。 */
 export function DistanceTable({
   nodeIds,
   result,
@@ -22,6 +28,9 @@ export function DistanceTable({
   source,
   target,
   playing,
+  changed = [],
+  reprocessed = [],
+  experimentMode = false,
 }: DistanceTableProps) {
   const dist = step?.dist ?? result?.dist ?? {};
   const pred = step?.pred ?? result?.pred ?? {};
@@ -29,6 +38,12 @@ export function DistanceTable({
   const affected = new Set<string>(
     step?.affected?.length ? step.affected : result?.affected ?? [],
   );
+  // 动态修复：当前帧为止被作废 / 被重新处理的节点（累计集合）
+  const frameInvalidated = new Set<string>(step?.invalidated ?? []);
+  const frameReprocessed = new Set<string>(
+    step?.reprocessed?.length ? step.reprocessed : reprocessed,
+  );
+  const changedMap = new Map(changed.map((c) => [c.node, c]));
 
   const isDijkstra = result?.algorithm === "dijkstra";
   const queue = step?.queue ?? [];
@@ -46,9 +61,20 @@ export function DistanceTable({
       <div className="panel-title">
         距离表（后端每一步返回快照）
         <span className="panel-sub">
-          已确定 = 最短距离锁定；∞ = 不可达；−∞ = 负权环影响
+          {experimentMode
+            ? "作废重算 / 被重新处理 / 未被碰到 三类一眼分开；变化格显示 旧值→新值"
+            : "已确定 = 最短距离锁定；∞ = 不可达；−∞ = 负权环影响"}
         </span>
       </div>
+
+      {experimentMode && (
+        <div className="exp-legend">
+          <span><i className="elg elg-invalid" />作废后重算</span>
+          <span><i className="elg elg-repro" />重新处理</span>
+          <span><i className="elg elg-untouched" />始终没碰</span>
+          <span><i className="elg elg-changed" />距离变化</span>
+        </div>
+      )}
 
       {/* 优先队列 / 轮次信息 */}
       <div className="meta-strip">
@@ -88,7 +114,11 @@ export function DistanceTable({
             const d = dist[id];
             const isAffected = affected.has(id);
             const initialized = id in dist;
-            const status = isAffected
+            const change = changedMap.get(id);
+            const isInvalid = frameInvalidated.has(id);
+            const isRepro = frameReprocessed.has(id);
+            const isChanged = change !== undefined;
+            let status = isAffected
               ? "−∞ 负权环"
               : settled.has(id)
                 ? "✓ 已确定"
@@ -97,6 +127,12 @@ export function DistanceTable({
                   : initialized
                     ? "∞ 不可达"
                     : "未初始化";
+            if (experimentMode) {
+              if (isAffected) status = "−∞ 负权环";
+              else if (isInvalid) status = "↺ 已作废重算";
+              else if (isRepro) status = "↻ 被重新处理";
+              else status = "— 未被碰到";
+            }
             return (
               <tr
                 key={id}
@@ -104,6 +140,10 @@ export function DistanceTable({
                   step?.current_node === id ? "row-current" : "",
                   settled.has(id) ? "row-settled" : "",
                   isAffected ? "row-affected" : "",
+                  experimentMode && isInvalid ? "row-invalidated" : "",
+                  experimentMode && !isInvalid && isRepro ? "row-reprocessed" : "",
+                  experimentMode && !isRepro && !isAffected ? "row-untouched" : "",
+                  experimentMode && isChanged ? "row-changed" : "",
                   target === id ? "row-target" : "",
                 ].join(" ")}
               >
@@ -115,6 +155,12 @@ export function DistanceTable({
                 <td className="cell-dist">
                   {isAffected ? (
                     <span className="dist-neginf">−∞</span>
+                  ) : isChanged ? (
+                    <span className="dist-change" title={`${fmt(change!.old)} → ${fmt(change!.new)}`}>
+                      <span className="dist-old">{fmt(change!.old)}</span>
+                      <span className="dist-arrow">→</span>
+                      <span className="dist-new">{fmt(change!.new)}</span>
+                    </span>
                   ) : (
                     fmt(d)
                   )}
@@ -125,9 +171,15 @@ export function DistanceTable({
                     className={
                       isAffected
                         ? "status status-bad"
-                        : settled.has(id)
-                          ? "status status-ok"
-                          : "status"
+                        : experimentMode
+                          ? isInvalid
+                            ? "status status-invalid"
+                            : isRepro
+                              ? "status status-repro"
+                              : "status status-untouched"
+                          : settled.has(id)
+                            ? "status status-ok"
+                            : "status"
                     }
                   >
                     {status}

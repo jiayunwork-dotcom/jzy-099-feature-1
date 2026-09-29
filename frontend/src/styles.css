@@ -744,3 +744,181 @@ body,
     flex-basis: 100%;
   }
 }
+
+/* ========================================================================
+   动态实验（增量修复）样式
+   ======================================================================== */
+
+:root {
+  --invalid: #c084fc;        /* 作废后重算：紫 */
+  --invalid-soft: rgba(192, 132, 252, 0.20);
+  --repro: #5aa7ff;          /* 重新处理：蓝 */
+  --repro-soft: rgba(90, 167, 255, 0.16);
+  --untouched: #46536e;      /* 没被碰到：暗灰 */
+}
+
+.experiment-panel.experiment-active {
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+.experiment-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 10px 2px 0;
+}
+
+.exp-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.exp-state-inc { background: var(--good-soft); border: 1px solid var(--good); }
+.exp-state-full { background: var(--warn-soft); border: 1px solid var(--warn); }
+.exp-state-cycle { background: var(--danger-soft); border: 1px solid var(--danger); }
+.exp-version { color: var(--muted); font-weight: 500; font-size: 12px; }
+
+.exp-reason {
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: 8px;
+  padding: 6px 9px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.relax-counts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.relax-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 86px;
+}
+.relax-num { font-size: 26px; font-weight: 700; color: var(--accent); }
+.relax-good .relax-num { color: var(--good); }
+.relax-label { font-size: 11px; color: var(--muted); }
+.relax-sep { font-size: 22px; color: var(--muted); }
+
+.exp-diff-summary {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.exp-diff-summary strong { color: var(--text); font-size: 15px; }
+
+.version-list-wrap { margin: 6px 0 10px; }
+.version-list-head {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.version-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.version-item {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.version-item:hover { border-color: var(--accent); }
+.version-item.v-viewing { outline: 2px solid var(--accent); }
+.version-item.v-current {
+  border-color: var(--good);
+  color: var(--good);
+  font-weight: 600;
+}
+
+.exp-history-banner { margin: 8px 0; }
+.exp-exit { width: 100%; justify-content: center; }
+.banner-info {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+}
+
+/* 距离表：动态实验三类节点 */
+.row-invalidated { background: var(--invalid-soft); }
+.row-reprocessed { background: var(--repro-soft); }
+.row-untouched td { opacity: 0.55; }
+.row-changed .cell-dist { font-weight: 700; }
+
+.status-invalid { color: var(--invalid); border: 1px solid var(--invalid); }
+.status-repro { color: var(--repro); border: 1px solid var(--repro); }
+.status-untouched { color: var(--muted); border: 1px solid var(--untouched); }
+
+.dist-change { display: inline-flex; align-items: center; gap: 5px; }
+.dist-old {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-weight: 400;
+  font-size: 12px;
+}
+.dist-arrow { color: var(--muted); }
+.dist-new { color: var(--good); }
+
+.exp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 8px;
+}
+.elg {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.elg-invalid { background: var(--invalid); }
+.elg-repro { background: var(--repro); }
+.elg-untouched { background: var(--untouched); }
+.elg-changed { background: var(--good); }
+
+/* 画布节点：作废 / 重新处理 / 没被碰到 */
+.node-invalidated .node-body {
+  fill: var(--invalid-soft);
+  stroke: var(--invalid);
+  stroke-width: 3;
+}
+.node-reprocessed .node-body {
+  fill: var(--repro-soft);
+  stroke: var(--repro);
+  stroke-width: 2.5;
+}
+.node-untouched .node-body { opacity: 0.5; }
+
+.lg-invalid { background: var(--invalid); }
+.lg-reprocessed { background: var(--repro); }
+.lg-untouched { background: var(--untouched); }
+
+.experiment-playback { margin-top: 10px; }
+.footer-exp { color: var(--accent); }

@@ -43,7 +43,16 @@ export type StepType =
   | "detect_start"
   | "detect"
   | "negative_cycle"
-  | "finished";
+  | "finished"
+  // 动态实验增量修复帧
+  | "invalidate_plan"
+  | "invalidate"
+  | "boundary_scan"
+  | "boundary"
+  | "reprocess"
+  | "decrease_plan"
+  | "seed"
+  | "noop";
 
 export interface Step {
   type: StepType;
@@ -60,6 +69,12 @@ export interface Step {
   relaxed: boolean | null;
   cycle: { nodes: string[]; edges: CycleEdge[]; weight: number | null } | null;
   affected: string[];
+  /** 动态实验：本帧为止被作废的节点（累计） */
+  invalidated?: string[];
+  /** 动态实验：本帧为止被重新处理过的节点（累计） */
+  reprocessed?: string[];
+  /** full = 全量重算（Bellman–Ford 逐轮）；incremental = 增量修复 */
+  phase?: "full" | "incremental";
 }
 
 export interface PathInfo {
@@ -99,4 +114,68 @@ export interface Preset {
 
 export interface PresetMap {
   [key: string]: Preset;
+}
+
+// ---- 动态实验 -----------------------------------------------------------
+
+export type EditKind =
+  | "set_weight"
+  | "add_edge"
+  | "delete_edge"
+  | "add_node"
+  | "delete_node";
+
+export interface ExperimentEdit {
+  kind: EditKind;
+  /** 提交时由 api 层注入；本地构造编辑时不用填 */
+  base_version?: number;
+  source?: string;
+  target?: string;
+  weight?: number;
+  node_id?: string;
+  x?: number;
+  y?: number;
+}
+
+export interface ChangeEntry {
+  node: string;
+  old: number | null;
+  new: number | null;
+}
+
+/** 一次版本结果（初始版本或一次编辑后的修复结果），结构上是 RunResult 的超集 */
+export interface ExperimentResult {
+  mode: "full" | "incremental";
+  reason: string | null;
+  version: number;
+  source: string;
+  graph: GraphData;
+  dist: Record<string, number | null>;
+  pred: Record<string, string | null>;
+  has_negative_cycle: boolean;
+  cycle: CycleInfo | null;
+  affected: string[];
+  reachable: string[];
+  changed: ChangeEntry[];
+  reprocessed: string[];
+  steps: Step[];
+  incremental_relax_count: number;
+  full_relax_count: number;
+  edit: Record<string, unknown> | null;
+}
+
+export interface ExperimentCreated {
+  experiment_id: string;
+  version: number;
+  result: ExperimentResult;
+}
+
+export interface ExperimentSummary {
+  experiment_id: string;
+  source: string;
+  current_version: number;
+  has_negative_cycle: boolean;
+  created_at: number;
+  last_accessed_at: number;
+  versions: number[];
 }
