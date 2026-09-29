@@ -7,6 +7,10 @@ interface AdjacencyMatrixProps {
   source: string | null;
   onSetWeight: (u: string, v: string, weight: number) => void;
   onSetSource: (id: string) => void;
+  /** 回看历史版本时只读，单元格不可编辑、源点不可改 */
+  readOnly?: boolean;
+  /** 动态实验中：空格子点击 = 提交「新增边」编辑，行首源点锁定 */
+  experimentMode?: boolean;
 }
 
 /** 邻接矩阵：行=起点，列=终点；与画布实时同步，单元格可直接编辑/新建边。 */
@@ -15,6 +19,8 @@ export function AdjacencyMatrix({
   source,
   onSetWeight,
   onSetSource,
+  readOnly = false,
+  experimentMode = false,
 }: AdjacencyMatrixProps) {
   const [editing, setEditing] = useState<{ u: string; v: string; value: string } | null>(
     null,
@@ -32,7 +38,13 @@ export function AdjacencyMatrix({
     <div className="panel matrix-panel">
       <div className="panel-title">
         邻接矩阵
-        <span className="panel-sub">行→列，点击单元格建边/改权（可负）；点行首「源」设源点</span>
+        <span className="panel-sub">
+          {readOnly
+            ? "历史回看只读：点击「回到最新」恢复编辑"
+            : experimentMode
+              ? "实验模式：点击单元格即提交加边/改权编辑（源点固定）"
+              : "行→列，点击单元格建边/改权（可负）；点行首「源」设源点"}
+        </span>
       </div>
       <div className="matrix-scroll">
         <table className="matrix-table">
@@ -50,9 +62,17 @@ export function AdjacencyMatrix({
             {ids.map((u) => (
               <tr key={u}>
                 <th
-                  className={`row-head ${source === u ? "th-source" : ""}`}
-                  onClick={() => onSetSource(u)}
-                  title="点击设为源点"
+                  className={`row-head ${source === u ? "th-source" : ""} ${
+                    experimentMode ? "row-head-locked" : ""
+                  }`}
+                  onClick={() => {
+                    if (!readOnly && !experimentMode) onSetSource(u);
+                  }}
+                  title={
+                    experimentMode
+                      ? "实验中源点固定，退出实验后可更改"
+                      : "点击设为源点"
+                  }
                 >
                   <span className="source-dot">{source === u ? "●" : "○"}</span>
                   {u}
@@ -66,16 +86,20 @@ export function AdjacencyMatrix({
                       className={[
                         edge ? "cell-edge" : "cell-empty",
                         edge && edge.weight < 0 ? "cell-neg" : "",
+                        readOnly ? "cell-readonly" : "",
                       ].join(" ")}
                       onClick={() => {
-                        if (!isEditing) {
-                          setEditing({ u, v, value: String(edge?.weight ?? 1) });
-                        }
+                        if (readOnly || isEditing) return;
+                        setEditing({ u, v, value: String(edge?.weight ?? 1) });
                       }}
                       title={
-                        edge
-                          ? `${u}→${v} 权 ${edge.weight}（点击改权）`
-                          : `点击新建边 ${u}→${v}`
+                        readOnly
+                          ? "历史回看只读"
+                          : edge
+                            ? `${u}→${v} 权 ${edge.weight}（点击改权）`
+                            : experimentMode
+                              ? `点击提交新增边 ${u}→${v}`
+                              : `点击新建边 ${u}→${v}`
                       }
                     >
                       {isEditing ? (

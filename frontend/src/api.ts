@@ -1,5 +1,8 @@
 import type {
   Algorithm,
+  EdgeEditRequest,
+  ExperimentHistory,
+  ExperimentVersion,
   GraphData,
   PresetMap,
   RunResult,
@@ -48,4 +51,51 @@ export async function fetchPresets(): Promise<PresetMap> {
   const resp = await fetch("/api/presets");
   if (!resp.ok) throw await parseError(resp);
   return (await resp.json()) as PresetMap;
+}
+
+// ---- 动态实验 ----------------------------------------------------------
+
+export async function createExperiment(
+  graph: GraphData,
+  source: string,
+): Promise<ExperimentVersion> {
+  const resp = await fetch("/api/experiments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ graph, source }),
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentVersion;
+}
+
+export async function submitExperimentEdit(
+  experimentId: string,
+  edit: EdgeEditRequest,
+): Promise<ExperimentVersion> {
+  const resp = await fetch(`/api/experiments/${experimentId}/edits`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(edit),
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentVersion;
+}
+
+export async function fetchExperimentHistory(
+  experimentId: string,
+): Promise<ExperimentHistory> {
+  const resp = await fetch(`/api/experiments/${experimentId}`);
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentHistory;
+}
+
+export async function fetchExperimentVersion(
+  experimentId: string,
+  version: number,
+): Promise<ExperimentVersion> {
+  const resp = await fetch(
+    `/api/experiments/${experimentId}/versions/${version}`,
+  );
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as ExperimentVersion;
 }

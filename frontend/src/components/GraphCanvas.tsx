@@ -1,8 +1,15 @@
 import { useCallback, useRef, useState } from "react";
-import type { GraphData, GNode, RunResult, Step } from "../types";
+import type { ExperimentVersion, GraphData, GNode, RunResult, Step } from "../types";
 import { edgeKey, findEdge, nodeMap } from "../graphUtils";
 
 export type ToolMode = "move" | "add-node";
+
+/** 动态实验态下，画布需要的三类节点集合与编辑拦截。 */
+export interface ExperimentOverlay {
+  current: ExperimentVersion;
+  step: Step | null;
+  readOnly: boolean;
+}
 
 interface GraphCanvasProps {
   graph: GraphData;
@@ -13,6 +20,7 @@ interface GraphCanvasProps {
   target: string | null;
   selectedNode: string | null;
   selectedEdge: [string, string] | null;
+  experiment?: ExperimentOverlay | null;
   onCanvasClickAddNode: (x: number, y: number) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
   onCreateEdge: (u: string, v: string) => void;
@@ -92,6 +100,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     target,
     selectedNode,
     selectedEdge,
+    experiment,
   } = props;
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -173,6 +182,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
   const onPointerUp = (e: React.PointerEvent) => {
     if (!drag) return;
     if (drag.kind === "edge") {
+      if (experiment?.readOnly) {
+        setDrag(null);
+        return;
+      }
       const p = toSvg(e.clientX, e.clientY);
       const hit = nodeAt(p.x, p.y);
       if (hit && hit.id !== drag.id) {
@@ -198,6 +211,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
   };
 
   const startEdit = (u: string, v: string) => {
+    if (experiment?.readOnly) return;
     const edge = findEdge(graph, u, v);
     setEditing([u, v]);
     setEditValue(String(edge?.weight ?? 1));
@@ -213,20 +227,45 @@ export function GraphCanvas(props: GraphCanvasProps) {
   };
 
   // ---- 高亮集合（来自后端 trace / 结果） ----
+  // 动态实验态：作废（深红描边）/ 重处理（橙色）/ 距离最终改变（蓝色脉冲）
+  const expInvalid = new Set<string>();
+  const expRepro = new Set<string>();
+  const expChanged = new Set<string>();
+  if (experiment) {
+    experiment.step?.invalidated?.forEach((id) => expInvalid.add(id));
+    experiment.current.reprocessed.forEach((id) => expRepro.add(id));
+    experiment.current.changed.forEach((c) => expChanged.add(c.node));
+    experiment.current.affected.forEach((id) => expChanged.add(id));
+  }
+
   const activeSet = new Set<string>();
   currentStep?.active_edges?.forEach((ae) => activeSet.add(edgeKey(ae.source, ae.target)));
+  experiment?.step?.active_edges?.forEach((ae) =>
+    activeSet.add(edgeKey(ae.source, ae.target)),
+  );
   const cycleSet = new Set<string>();
   const cycleNodes = new Set<string>();
-  const stepCycle = currentStep?.cycle ?? result?.cycle ?? null;
+  const stepCycle =
+    experiment?.step?.cycle
+    ?? (experiment ? experiment.current.cycle : null)
+    ?? currentStep?.cycle
+    ?? result?.cycle
+    ?? null;
   stepCycle?.edges.forEach((ce) => cycleSet.add(edgeKey(ce.source, ce.target)));
   stepCycle?.nodes.forEach((id) => cycleNodes.add(id));
   const affectedNodes = new Set<string>(
-    currentStep?.affected?.length ? currentStep.affected : result?.affected ?? [],
+    experiment
+      ? (experiment.step?.affected?.length
+          ? experiment.step.affected
+          : experiment.current.affected)
+      : (currentStep?.affected?.length ? currentStep.affected : result?.affected ?? []),
   );
-  const settledNodes = new Set<string>(currentStep?.settled ?? []);
+  const settledNodes = new Set<string>(
+    experiment ? [] : currentStep?.settled ?? [],
+  );
   const finalPathEdges = new Set<string>();
   const finalPathNodes = new Set<string>();
-  if (!currentStep || currentStep.type === "finished" || currentStep.type === "negative_cycle") {
+  if (!experiment && (!currentStep || currentStep.type === "finished" || currentStep.type === "negative_cycle")) {
     result?.path?.edges.forEach((pe) => finalPathEdges.add(edgeKey(pe.source, pe.target)));
     result?.path?.nodes.forEach((id) => finalPathNodes.add(id));
   }
@@ -306,8 +345,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const isPath = finalPathEdges.has(key);
         const isSelected =
           selectedEdge?.[0] === e.source && selectedEdge?.[1] === e.target;
-        const relaxed = isActive && currentStep?.relaxed === true;
-        const failed = isActive && currentStep?.relaxed === false;
+        const stepRelaxed = experiment ? experiment.step?.relaxed : currentStep?.relaxed;
+        const relaxed = isActive && stepRelaxed === true;
+        const failed = isActive && stepRelaxed === false;
 
         let path: string;
         if (g.selfLoop) {
@@ -447,10 +487,15 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const isSource = source === n.id;
         const isTarget = target === n.id;
         const isSettled = settledNodes.has(n.id);
-        const isCurrent = currentStep?.current_node === n.id;
+        const isCurrent =
+          (experiment ? experiment.step?.current_node : currentStep?.current_node) === n.id;
         const isCycle = cycleNodes.has(n.id);
         const isAffected = affectedNodes.has(n.id) && !isCycle;
         const isPath = finalPathNodes.has(n.id);
+        const isExpInvalid = expInvalid.has(n.id);
+        const isExpChanged = expChanged.has(n.id) && !isExpInvalid;
+        const isExpReproOnly =
+          !!experiment && expRepro.has(n.id) && !isExpChanged && !isExpInvalid;
         const isSelected = selectedNode === n.id;
         const cls = [
           "node",
@@ -461,6 +506,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
           isCycle ? "node-cycle" : "",
           isAffected ? "node-affected" : "",
           isPath ? "node-path" : "",
+          isExpInvalid ? "node-exp-invalid" : "",
+          isExpChanged ? "node-exp-changed" : "",
+          isExpReproOnly ? "node-exp-repro" : "",
           isSelected ? "node-selected" : "",
           mode === "add-node" ? "node-no-drag" : "",
         ].join(" ");
@@ -477,7 +525,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
             }}
             onContextMenu={(ev) => {
               ev.preventDefault();
-              props.onSetSource(n.id);
+              // 实验中源点固定，由 App 层弹窗提示；这里直接吞掉
+              if (!experiment) props.onSetSource(n.id);
             }}
           >
             <circle r={NODE_R} className="node-body" />

@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .bellman_ford import run_bellman_ford
 from .dijkstra import run_dijkstra
+from .dynamic.routes import router as experiments_router
 from .graph import Graph, GraphError
 from .models import RunRequest, RunResponse
 from .path import backtrack_path
@@ -24,6 +25,8 @@ app = FastAPI(
     version="1.0.0",
     description="Dijkstra / Bellman–Ford 逐步演示，含负权环检测与路径回溯。",
 )
+
+app.include_router(experiments_router)
 
 
 def _error(message: str, status: int = 400) -> HTTPException:
